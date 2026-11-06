@@ -5552,6 +5552,92 @@ describe('SidebarUtils', () => {
                 expect(resultWithoutThread[`${ONYXKEYS.COLLECTION.REPORT}${expenseReport.reportID}`]?.isUnreadReport).toBeFalsy();
             });
 
+            it('should show a single-expense report as unread in Focus mode once its missing parent arrives after a cold start', async () => {
+                // Given the Onyx state a Focus-mode OpenApp leaves after Clear cache and restart: the server returns the unread transaction
+                // thread and the parent's IOU action, but leaves out the expense report, which is read by its own timestamps. The submitter's
+                // notification preference on the thread is hidden, so the thread row cannot stand in for the report either.
+                const expenseReport: Report = {
+                    ...createRandomReport(1, undefined),
+                    type: CONST.REPORT.TYPE.EXPENSE,
+                    transactionCount: 1,
+                    isPinned: false,
+                    isOwnPolicyExpenseChat: false,
+                    participants: {[CURRENT_USER_ACCOUNT_ID]: {notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.ALWAYS}},
+                    lastReadTime: '2025-01-20 12:00:00.000',
+                    lastVisibleActionCreated: '2025-01-20 11:00:00.000',
+                    lastActorAccountID: CURRENT_USER_ACCOUNT_ID,
+                };
+                const unreadTransactionThread: Report = {
+                    ...createRandomReport(2, undefined),
+                    type: CONST.REPORT.TYPE.CHAT,
+                    isPinned: false,
+                    isOwnPolicyExpenseChat: false,
+                    parentReportID: expenseReport.reportID,
+                    parentReportActionID: '1',
+                    participants: {[CURRENT_USER_ACCOUNT_ID]: {notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.HIDDEN}},
+                    lastReadTime: '2025-01-20 12:00:00.000',
+                    lastVisibleActionCreated: '2025-01-20 13:00:00.000',
+                    lastActorAccountID: 18921695,
+                };
+                const iouAction: ReportAction = {
+                    ...mockIOUAction,
+                    reportActionID: '1',
+                    reportID: expenseReport.reportID,
+                    childReportID: unreadTransactionThread.reportID,
+                    actorAccountID: CURRENT_USER_ACCOUNT_ID,
+                    created: '2025-01-20 11:00:00.000',
+                };
+                const expenseReportKey = `${ONYXKEYS.COLLECTION.REPORT}${expenseReport.reportID}` as const;
+                const transactionThreadKey = `${ONYXKEYS.COLLECTION.REPORT}${unreadTransactionThread.reportID}` as const;
+                const buildLHNReports = (reports: OnyxCollection<Report>, reportAttributes: ReportAttributesDerivedValue['reports']) =>
+                    SidebarUtils.getReportsToDisplayInLHN({
+                        currentReportId: undefined,
+                        reports,
+                        policies: {},
+                        isDefaultRoomsBetaEnabled: false,
+                        priorityMode: CONST.PRIORITY_MODE.GSD,
+                        draftComments: {},
+                        transactionViolations: {},
+                        transactions: {},
+                        isOffline: false,
+                        currentUserLogin: CURRENT_USER_LOGIN,
+                        currentUserAccountID: CURRENT_USER_ACCOUNT_ID,
+                        reportNameValuePairs: {},
+                        reportAttributes,
+                        guideAccountIDs: [],
+                        conciergeReportID: undefined,
+                        session: undefined,
+                    });
+                await act(async () => {
+                    await Onyx.set(ONYXKEYS.SESSION, {accountID: CURRENT_USER_ACCOUNT_ID, email: CURRENT_USER_LOGIN});
+                    await Onyx.set(transactionThreadKey, unreadTransactionThread);
+                    await Onyx.set(`${ONYXKEYS.COLLECTION.REPORT_ACTIONS}${expenseReport.reportID}`, {[iouAction.reportActionID]: iouAction});
+                });
+                const coldStartResult = buildLHNReports({[transactionThreadKey]: unreadTransactionThread}, {});
+
+                // When the missing expense report is fetched and lands in Onyx, so the derived value links it to its thread again
+                await act(async () => {
+                    await Onyx.set(expenseReportKey, expenseReport);
+                });
+                const reportAttributes: ReportAttributesDerivedValue['reports'] = {
+                    [expenseReport.reportID]: {
+                        reportName: '',
+                        isEmpty: false,
+                        brickRoadStatus: undefined,
+                        requiresAttention: false,
+                        reportErrors: {},
+                        oneTransactionThreadReportID: unreadTransactionThread.reportID,
+                    },
+                };
+                const result = buildLHNReports({[expenseReportKey]: expenseReport, [transactionThreadKey]: unreadTransactionThread}, reportAttributes);
+
+                // Then nothing was listed before the fetch, and afterwards the expense report shows as unread while its thread stays hidden behind it
+                expect(coldStartResult[expenseReportKey]).toBeUndefined();
+                expect(coldStartResult[transactionThreadKey]).toBeUndefined();
+                expect(result[expenseReportKey]?.isUnreadReport).toBe(true);
+                expect(result[transactionThreadKey]).toBeUndefined();
+            });
+
             it('should pass isOffline=false to shouldDisplayReportInLHN', () => {
                 const report = {
                     ...createRandomReport(1, undefined),

@@ -18,6 +18,7 @@ import React, {createContext, useCallback, useContext, useEffect, useMemo, useRe
 import useCollectionDelta from './useCollectionDelta';
 import {useCurrentReportIDState} from './useCurrentReportID';
 import useCurrentUserPersonalDetails from './useCurrentUserPersonalDetails';
+import useFetchMissingTransactionThreadParents from './useFetchMissingTransactionThreadParents';
 import useLocalize from './useLocalize';
 import useNetwork from './useNetwork';
 import useOnyx from './useOnyx';
@@ -137,6 +138,9 @@ function SidebarOrderedReportsContextProvider({
     const {currentReportID: currentReportIDValue} = useCurrentReportIDState();
     const derivedCurrentReportID = currentReportIDForTests ?? currentReportIDValue;
     const prevDerivedCurrentReportID = usePrevious(derivedCurrentReportID);
+
+    // A Focus-mode OpenApp can return an unread transaction thread without its single-expense parent, which is the row the LHN shows for it.
+    useFetchMissingTransactionThreadParents(reportUpdates, chatReports, priorityMode);
 
     // we need to force reportsToDisplayInLHN to re-compute when we clear currentReportsToDisplay, but the way it currently works relies on not having currentReportsToDisplay as a memo dependency, so we just need something we can change to trigger it
     // I don't like it either, but clearing the cache is only a hack for the debug modal and I will endeavor to make it better as I work to improve the cache correctness of the LHN more broadly
